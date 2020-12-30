@@ -1,62 +1,34 @@
 #!/usr/bin/env python3
-# PYTHON_PREAMBLE_START_STANDARD:{{{
-
-# Christopher David Cotton (c)
-# http://www.cdcotton.com
-
-# modules needed for preamble
-import importlib
 import os
 from pathlib import Path
-import sys
-
-# Get full real filename
-__fullrealfile__ = os.path.abspath(__file__)
-
-# Function to get git directory containing this file
-def getprojectdir(filename):
-    curlevel = filename
-    while curlevel is not '/':
-        curlevel = os.path.dirname(curlevel)
-        if os.path.exists(curlevel + '/.git/'):
-            return(curlevel + '/')
-    return(None)
-
-# Directory of project
-__projectdir__ = Path(getprojectdir(__fullrealfile__))
-
-# Function to call functions from files by their absolute path.
-# Imports modules if they've not already been imported
-# First argument is filename, second is function name, third is dictionary containing loaded modules.
-modulesdict = {}
-def importattr(modulefilename, func, modulesdict = modulesdict):
-    # get modulefilename as string to prevent problems in <= python3.5 with pathlib -> os
-    modulefilename = str(modulefilename)
-    # if function in this file
-    if modulefilename == __fullrealfile__:
-        return(eval(func))
-    else:
-        # add file to moduledict if not there already
-        if modulefilename not in modulesdict:
-            # check filename exists
-            if not os.path.isfile(modulefilename):
-                raise Exception('Module not exists: ' + modulefilename + '. Function: ' + func + '. Filename called from: ' + __fullrealfile__ + '.')
-            # add directory to path
-            sys.path.append(os.path.dirname(modulefilename))
-            # actually add module to moduledict
-            modulesdict[modulefilename] = importlib.import_module(''.join(os.path.basename(modulefilename).split('.')[: -1]))
-
-        # get the actual function from the file and return it
-        return(getattr(modulesdict[modulefilename], func))
-
-# PYTHON_PREAMBLE_END:}}}
-
-import os
 import pexpect
+import re
 import shutil
 import subprocess
+import sys
+import urllib.request
 
-# Git Details:{{{1
+__projectdir__ = Path(os.path.dirname(os.path.realpath(__file__)) + '/')
+
+
+# Get List of Github Repositories:{{{1
+def getgithubrepositories(username):
+
+    with urllib.request.urlopen("https://api.github.com/users/" + username + "/repos?per_page=1000") as fp:
+        mybytes = fp.read()
+
+    text = mybytes.decode("utf8")
+
+    refullname = re.compile('"full_name":"([a-zA-Z0-9/_-]*)"')
+    matches = refullname.finditer(text)
+    projects = []
+    for match in matches:
+        projects.append( match.group(1)[len('c-d-cotton/'): ] )
+
+    return(projects)
+
+
+# Get Details on Git Projects:{{{1
 def getgitdetails(gitlist, addremotelocation = False, addcheckorigin = False, addcheckuncommittedfiles = False):
     import re
     import subprocess
@@ -64,14 +36,19 @@ def getgitdetails(gitlist, addremotelocation = False, addcheckorigin = False, ad
     aheadre = re.compile(r"Your branch is ahead of 'origin/master' by .* commit.?\.")
 
     gitdetailsdict = {}
+    notgitlist = []
     for gitdir in sorted(gitlist):
-        gitdetailsdict[gitdir] = {}
-
-        gitdetailsdict[gitdir]['location'] = gitdir
-
-        output = subprocess.check_output(['git', 'status'], cwd = gitdir)
+        try:
+            output = subprocess.check_output(['git', 'status'], cwd = gitdir)
+        except Exception:
+            notgitlist.append(gitdir)
+            continue
+            
         output = output.decode('latin-1')
         outputlist = output.split('\n')
+
+        gitdetailsdict[gitdir] = {}
+        gitdetailsdict[gitdir]['location'] = gitdir
 
         # add branch
         # Parsing line 'On branch BRANCH'
@@ -131,19 +108,40 @@ def getgitdetails(gitlist, addremotelocation = False, addcheckorigin = False, ad
             except Exception:
                 gitdetailsdict[gitdir]['remotelocation'] = None
                 
+    if len(notgitlist) > 0:
+        print('\nProjects that are not a git directory:\n' + '\n'.join(notgitlist))
 
-    return(gitdetailsdict)
-            
+    return(gitdetailsdict, notgitlist)
+
+
 def printgitdetails(gitlist):
-    gitdirsdict = importattr(__projectdir__ / Path('main_func.py'), 'getgitdetails')(gitlist)
+    gitdirsdict, notgitlist = getgitdetails(gitlist)
 
     notallcommitted = []
     notonmaster = []
+    behindgithub = []
+    aheadgithub = []
     for gitdir in sorted(gitdirsdict):
         if gitdirsdict[gitdir]['allcommitted'] == False and gitdirsdict[gitdir]['branch'] == 'master':
             notallcommitted.append(gitdir)
         if gitdirsdict[gitdir]['branch'] != 'master':
             notonmaster.append(gitdir)
+
+        if gitdirsdict[gitdir]['localvorigin'] == 'ahead':
+            aheadgithub.append(gitdir)
+
+        if 'originvlocal' in gitdirsdict and gitdirsdict[gitdir]['originvlocal'] == 'ahead':
+            behindgithub.append(gitdir)
+
+
+    if len(notgitlist) > 0:
+        print('\nProjects that are not a git directory:\n' + '\n'.join(notgitlist))
+
+    if len(aheadgithub) > 0:
+        print('\nProjects that are ahead of github (so may need to do git push):\n' + '\n'.join(aheadgithub))
+
+    if len(behindgithub) > 0:
+        print('\nProjects that are behind github (so may need to do git pull):\n' + '\n'.join(behindgithub))
 
     if len(notonmaster) > 0:
         print('\nProjects not on the master branch:\n' + '\n'.join(notonmaster))
@@ -151,41 +149,25 @@ def printgitdetails(gitlist):
     if len(notallcommitted) > 0:
         print('\nProjects with uncommitted files on the master branch:\n' + '\n'.join(notallcommitted))
 
-def printgitremote(gitlist):
-    gitdirsdict = importattr(__projectdir__ / Path('main_func.py'), 'getgitdetails')(gitlist, addremotelocation = True)
-
-    noremote = []
-    github = []
-    other = []
-    for gitdir in sorted(gitdirsdict):
-        if gitdirsdict[gitdir]['remotelocation'] == None:
-            noremote.append(gitdir)
-        elif gitdirsdict[gitdir]['remotelocation'].startswith('https://github.com/c-d-cotton/'):
-            github.append(gitdir)
-        else:
-            other.append(gitdir)
-
-    if len(github) > 0:
-        print('\nGITHUB:\n' + '\n'.join(github))
-
-    if len(other) > 0:
-        print('\nOTHER:\n' + '\n'.join(other))
-
-    if len(noremote) > 0:
-        print('\nNONE:\n' + '\n'.join(noremote))
 
 # Commit Functions:{{{1
-def commitallgit(gitlist, commitmessage, gitdetailsdict = None, addfiles = False, addotherbranches = False, commitnewfiles = False, checkcommitnewfiles = False):
-    import subprocess
-    import sys
+def commitallgit(gitlist, commitmessage, gitdetailsdict = None, addotherbranches = False, commitnewfiles = False, checkcommitnewfiles = False):
+    """
+    gitlist: list of git folders to commit
+    commitmessage: message I commit with for all folders
+    gitdetailsdict: I run the gitdetails function to see which files to commit unless it's already specified here
+    addotherbranches: commit even when the git project is on another branch
+    commitnewfiles: commit projects even where there are files that are not int he previous project version
+    checkcommitnewfiles: only commit projects with new files after confirmation y/n
+    """
 
     if commitnewfiles is True:
         addcheckuncommittedfiles = False
     else:
         addcheckuncommittedfiles = True
 
-    if gitdetailsdict is not None:
-        gitdetailsdict = importattr(__projectdir__ / Path('main_func.py'), 'getgitdetails')(gitlist, addcheckuncommittedfiles = addcheckuncommittedfiles)    
+    if gitdetailsdict is None:
+        gitdetailsdict, notgitlist = getgitdetails(gitlist, addcheckuncommittedfiles = addcheckuncommittedfiles)    
 
 
     notcommitted = [gitdir for gitdir in gitdetailsdict if gitdetailsdict[gitdir]['allcommitted'] == False]
@@ -208,7 +190,9 @@ def commitallgit(gitlist, commitmessage, gitdetailsdict = None, addfiles = False
                 print(gitdir + ' contains the following new files:')
                 print(gitdetailsdict[gitdir]['uncommittedfiles'])
                 print('Commit this folder (y/n/q)?')
-                inputted = importattr(__projectdir__ / Path('submodules/py-getch/getch/getch.py'), 'getch')()
+                sys.path.append(str(__projectdir__ / Path('submodules/py-getch/getch')))
+                from getch import getch
+                inputted = getch()
                 if inputted == 'y':
                     removefolders.append(gitdir)
                 if inputted == 'q':
@@ -233,7 +217,9 @@ def commitallgit(gitlist, commitmessage, gitdetailsdict = None, addfiles = False
         print('\n'.join(folderswithnewfiles))
 
     if len(tocommit) > 0:
-        importattr(__projectdir__ / Path('submodules/python-pause/pausecall.py'), 'confirm')()
+        sys.path.append(str(__projectdir__ / Path('submodules/python-pause/')))
+        from pausecall import confirm
+        confirm()
 
 
         for gitdir in tocommit:
@@ -249,102 +235,46 @@ def commitallgit_ap(gitlist, checkcommitnewfiles = False):
     # Argparse:{{{
     parser=argparse.ArgumentParser()
     parser.add_argument("commitmessage")
-    parser.add_argument("--addfiles", action='store_true')
-    parser.add_argument("--noaddfiles", action='store_true')
     parser.add_argument("-a", "--addotherbranches", action='store_true')
     
     
     args=parser.parse_args()
     # End argparse:}}}
 
-    addfiles = False
-    if args.addfiles == True:
-        addfiles = True
-    if args.noaddfiles == False:
-        addfiles = False
-
-    importattr(__projectdir__ / Path('main_func.py'), 'commitallgit')(gitlist, args.commitmessage, addfiles, addotherbranches = args.addotherbranches, checkcommitnewfiles = checkcommitnewfiles)
+    commitallgit(gitlist, args.commitmessage, addotherbranches = args.addotherbranches, checkcommitnewfiles = checkcommitnewfiles)
 
 # Git Push/Pull:{{{1
-def pushorigingit(gitlist, gitdetailsdict = None):
-    import subprocess
-
-    if gitdetailsdict is None:
-        gitdetailsdict = importattr(__projectdir__ / Path('main_func.py'), 'getgitdetails')(gitlist)    
-        
-
-    pushlist = sorted([gitdir for gitdir in gitdetailsdict if gitdetailsdict[gitdir]['allcommitted'] is True and gitdetailsdict[gitdir]['localvorigin'] == 'ahead'])
-
-    if len(pushlist) > 0:
-        print('\nFOLDERS TO PUSH:')
-        print('\n'.join(pushlist))
-
-        importattr(__projectdir__ / Path('submodules/python-pause/pausecall.py'), 'confirm')()
-
-        for gitdir in pushlist:
-            subprocess.call(['git', 'push', 'origin', 'master'], cwd = gitdetailsdict[gitdir]['location'])
-    else:
-        print('all masters up-to-date with origin')
-
-
-def pushorigingit_github(githubuserhome, username, gitlist, gitdetailsdict = None, githubpwd = None, skipnonme = False, force = False):
+def pullorigingit(gitlist):
     """
-    Calls pushorigingit but for github
+    Just git pull for every folder in a list
     """
 
-    if gitdetailsdict is None:
-        gitdetailsdict = importattr(__projectdir__ / Path('main_func.py'), 'getgitdetails')(gitlist, addremotelocation = True)    
+    pwd = os.getcwd()
 
-    pushlist_all = sorted([gitdir for gitdir in gitdetailsdict if gitdetailsdict[gitdir]['allcommitted'] is True and gitdetailsdict[gitdir]['remotelocation'] is not None and (force is True or gitdetailsdict[gitdir]['localvorigin'] == 'ahead')])
-    pushlist_committed = [gitdir for gitdir in pushlist_all if gitdetailsdict[gitdir]['allcommitted'] is True]
-    pushlist_notcommitted = [gitdir for gitdir in pushlist_all if gitdetailsdict[gitdir]['allcommitted'] is False]
+    for gitdir in gitlist:
+        os.chdir(gitdir)
+        try:
+            subprocess.check_output(['git', 'pull'])
+            print('git pull succeeded for: ' + gitdir + '.')
+        except subprocess.CalledProcessError as e:
+            print('git pull failed for: ' + gitdir + '.')
+            print(e.output)
 
-    if len(pushlist_notcommitted) > 0:
-        print('\nFOLDERS NOT COMMITTED:')
-        print('\n'.join(pushlist_notcommitted))
-        print('\nWAIT!!! FOLDERS NOT COMMITTED!:')
-        importattr(__projectdir__ / Path('submodules/python-pause/pausecall.py'), 'confirm')()
-
-
-    if len(pushlist_committed) > 0:
-        print('\nFOLDERS TO PUSH:')
-        print('\n'.join(pushlist_committed))
-
-        importattr(__projectdir__ / Path('submodules/python-pause/pausecall.py'), 'confirm')()
-
-        if force is True:
-            forcestring = ' -f'
-        else:
-            forcestring = ''
-
-        if githubuserhome[-1] != '/':
-            githubuserhome = githubuserhome + '/' 
-        for gitdir in pushlist_committed:
-            print('Parsing: ' + gitdir)
-            if gitdetailsdict[gitdir]['remotelocation'].startswith(githubuserhome):
-                child = pexpect.spawn('git push' + forcestring + ' origin master', cwd = gitdetailsdict[gitdir]['location'])
-                child.expect('Username for ', timeout = 20)
-                child.sendline(username)
-                child.expect('Password for ', timeout = 20)
-                child.sendline(githubpwd)
-
-                print('\n'.join(child.read().decode('latin-1').splitlines()))
-                print('')
-            else:
-                subprocess.call(['git', 'push', 'origin', 'master'], cwd = gitdetailsdict[gitdir]['location'])
-    else:
-        print('all masters up-to-date with origin')
+    os.chdir(pwd)
 
 
-def pullorigingit(gitlist, gitdetailsdict = None):
+def pullorigingit_dict(gitlist, gitdetailsdict = None):
     """
+    Select which repositories to pull using my git details function
+    Possibly quicker but doesn't always correctly identify whether needs to be pulled (if for some reason the github and local versions don't line up)
+    I normally just use pullorigingit() instead
+
     If input gitdetailsdict, needs to be run with option addcheckorigin
     """
-    import subprocess
 
     if gitdetailsdict is None:
         print('Getting list for whether pull is ahead of current or not')
-        gitdetailsdict = importattr(__projectdir__ / Path('main_func.py'), 'getgitdetails')(gitlist, addcheckorigin = True)    
+        gitdetailsdict, nogitlist = getgitdetails(gitlist, addcheckorigin = True)    
 
     pulllist = sorted([gitdir for gitdir in gitdetailsdict if gitdetailsdict[gitdir]['allcommitted'] is True and gitdetailsdict[gitdir]['originvlocal'] == 'ahead'])
 
@@ -352,7 +282,9 @@ def pullorigingit(gitlist, gitdetailsdict = None):
         print('\nFOLDERS TO PULL:')
         print('\n'.join(pulllist))
 
-        importattr(__projectdir__ / Path('submodules/python-pause/pausecall.py'), 'confirm')()
+        sys.path.append(str(__projectdir__ / Path('submodules/python-pause/')))
+        from pausecall import confirm
+        confirm()
 
         for gitdir in pulllist:
             print('Pulling ' + gitdir + '.')
@@ -361,10 +293,59 @@ def pullorigingit(gitlist, gitdetailsdict = None):
         print('all origins up-to-date')
 
 
-# Empty Repository:{{{1
-def emptyrepository(gitlist, gitdetailsdict = None):
+def pushorigingit(gitlist):
+    """
+    Just git push for every folder in a list
+    """
+
+    pwd = os.getcwd()
+
+    for gitdir in gitlist:
+        os.chdir(gitdir)
+        try:
+            subprocess.check_output(['git', 'push'])
+            print('git push succeeded for: ' + gitdir + '.')
+        except subprocess.CalledProcessError as e:
+            print('git push failed for: ' + gitdir + '.')
+            print(e.output)
+
+    os.chdir(pwd)
+
+
+def pushorigingit_dict(gitlist, gitdetailsdict = None):
+    """
+    Select which repositories to push using my git details function
+    Possibly quicker but doesn't always correctly identify whether needs to be pushed (if for some reason the github and local versions don't line up)
+    I normally just use pushorigingit() instead
+    """
+
     if gitdetailsdict is None:
-        gitdetailsdict = importattr(__projectdir__ / Path('main_func.py'), 'getgitdetails')(gitlist, addremotelocation = True)    
+        gitdetailsdict, notgitlist = getgitdetails(gitlist)    
+        
+
+    pushlist = sorted([gitdir for gitdir in gitdetailsdict if gitdetailsdict[gitdir]['allcommitted'] is True and gitdetailsdict[gitdir]['localvorigin'] == 'ahead'])
+
+    if len(pushlist) > 0:
+        print('\nFOLDERS TO PUSH:')
+        print('\n'.join(pushlist))
+
+        sys.path.append(str(__projectdir__ / Path('submodules/python-pause/')))
+        from pausecall import confirm
+        confirm()
+
+        for gitdir in pushlist:
+            subprocess.call(['git', 'push', 'origin', 'master'], cwd = gitdetailsdict[gitdir]['location'])
+    else:
+        print('all masters up-to-date with origin')
+
+
+# Empty .git Folders:{{{1
+def emptyrepository(gitlist, gitdetailsdict = None):
+    """
+    Replaces all .git folders in gitlist with an empty folder
+    """
+    if gitdetailsdict is None:
+        gitdetailsdict, notgitlist = getgitdetails(gitlist, addremotelocation = True)    
 
     print('\nFOLDERS WHERE DELETE .git/ folder and replace with empty .git/:')
     print('\n'.join(gitdetailsdict))
@@ -372,12 +353,16 @@ def emptyrepository(gitlist, gitdetailsdict = None):
     print('IRREVERSIBLE!!!')
     print('MAKE SURE NO MISTAKE i.e. commit all first')
 
-    importattr(__projectdir__ / Path('submodules/python-pause/pausecall.py'), 'confirm')()
+    sys.path.append(str(__projectdir__ / Path('submodules/python-pause/')))
+    from pausecall import confirm
+    confirm()
 
     for gitdir in gitlist:
         # remove folder
         # need to change permissions due to read-only .git folder
-        importattr(__projectdir__ / Path('submodules/python-general-func/main.py'), 'chmodrecursive')(gitdir, 0o755)
+        sys.path.append(str(__projectdir__ / Path('submodules/python-general-func/')))
+        from main import chmodrecursive
+        chmodrecursive(gitdir, 0o755)
         shutil.rmtree(os.path.join(gitdir, '.git'))
 
         subprocess.call(['git', 'init'], cwd = gitdir)
