@@ -251,14 +251,22 @@ def pullorigingit(gitlist):
 
     pwd = os.getcwd()
 
+    badprojects = []
     for gitdir in gitlist:
         os.chdir(gitdir)
+
+        print('\ngit pull starting for ' + gitdir + '.')
         try:
             subprocess.check_output(['git', 'pull'])
             print('git pull succeeded for: ' + gitdir + '.')
         except subprocess.CalledProcessError as e:
+            badprojects.append(gitdir)
             print('git pull failed for: ' + gitdir + '.')
             print(e.output)
+
+    if len(badprojects) > 0:
+        print('\nGIT PULL FAILED for following projects:')
+        print('\n'.join(badprojects))
 
     os.chdir(pwd)
 
@@ -300,14 +308,22 @@ def pushorigingit(gitlist):
 
     pwd = os.getcwd()
 
+    badprojects = []
     for gitdir in gitlist:
         os.chdir(gitdir)
+
+        print('\ngit push starting for ' + gitdir + '.')
         try:
             subprocess.check_output(['git', 'push'])
             print('git push succeeded for: ' + gitdir + '.')
         except subprocess.CalledProcessError as e:
+            badprojects.append(gitdir)
             print('git push failed for: ' + gitdir + '.')
             print(e.output)
+
+    if len(badprojects) > 0:
+        print('\nGIT PUSH FAILED for following projects:')
+        print('\n'.join(badprojects))
 
     os.chdir(pwd)
 
