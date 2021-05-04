@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import argparse
 import os
 from pathlib import Path
 import pexpect
@@ -10,22 +11,54 @@ import urllib.request
 
 __projectdir__ = Path(os.path.dirname(os.path.realpath(__file__)) + '/')
 
+# argparse fileinputs
+sys.path.append(str(__projectdir__ / Path('submodules/argparse-fileinputs/')))
+from argparse_fileinputs import add_fileinputs
+from argparse_fileinputs import process_fileinputs
 
-# Get List of Github Repositories:{{{1
-def getgithubrepositories(username):
 
-    with urllib.request.urlopen("https://api.github.com/users/" + username + "/repos?per_page=1000") as fp:
-        mybytes = fp.read()
+# Get Git List:{{{1
+def getgitdirlist_ap(parser_initial = None):
+    """
+    Get a list of git projects
 
-    text = mybytes.decode("utf8")
+    Also allow for other arguments to be input into argparse by specifying a prefilled parser
+    And allow for the outputted arguments to be output as an argument
+    """
+    if parser_initial is None:
+        parser = argparse.ArgumentParser()
+    else:
+        parser = parser_initial
 
-    refullname = re.compile('"full_name":"([a-zA-Z0-9/_-]*)"')
-    matches = refullname.finditer(text)
-    projects = []
-    for match in matches:
-        projects.append( match.group(1)[len('c-d-cotton/'): ] )
+    # add filelist elements
+    parser = add_fileinputs(parser, desc = "rootdir")
+    parser = add_fileinputs(parser, desc = "singledir")
+    args = parser.parse_args()
 
-    return(projects)
+    rootdirs = process_fileinputs(args, desc = "rootdir")
+    singledirs = process_fileinputs(args, desc = "singledir")
+
+    for rootdir in rootdirs:
+        rootdir = rootdir.replace('~', os.path.expanduser('~'))
+        dirs = os.listdir(rootdir)
+        for folder in dirs:
+            singledirs.append(os.path.join(rootdir, folder))
+
+    singledirs = sorted(singledirs)
+
+    singledirs = [singledir for singledir in singledirs if not singledir.startswith('#')]
+    singledirs = [singledir for singledir in singledirs if singledir != '']
+    singledirs = [singledir.replace('~', os.path.expanduser('~')) for singledir in singledirs]
+
+    if parser_initial is None:
+        return(singledirs)
+    else:
+        return(args, singledirs)
+
+
+def printgitlist_ap():
+    gitlist = getgitdirlist_ap(parser_initial = None)
+    print('\n'.join(gitlist))
 
 
 # Get Details on Git Projects:{{{1
@@ -150,6 +183,11 @@ def printgitdetails(gitlist):
         print('\nProjects with uncommitted files on the master branch:\n' + '\n'.join(notallcommitted))
 
 
+def printgitdetails_ap():
+    gitlist = getgitdirlist_ap()
+    printgitdetails(gitlist)
+
+
 # Commit Functions:{{{1
 def commitallgit(gitlist, commitmessage, gitdetailsdict = None, addotherbranches = False, commitnewfiles = False, checkcommitnewfiles = False):
     """
@@ -230,16 +268,16 @@ def commitallgit(gitlist, commitmessage, gitdetailsdict = None, addotherbranches
 
 
 def commitallgit_ap(gitlist, checkcommitnewfiles = False):
-    import argparse
 
-    # Argparse:{{{
-    parser=argparse.ArgumentParser()
-    parser.add_argument("commitmessage")
-    parser.add_argument("-a", "--addotherbranches", action='store_true')
-    
-    
-    args=parser.parse_args()
-    # End argparse:}}}
+    parser_initial=argparse.ArgumentParser()
+    parser_initial.add_argument("commitmessage")
+    parser_initial.add_argument("-a", "--addotherbranches", action='store_true')
+
+    args, gitlist2 = getgitdirlist_ap(parser_initial = parser_initial)
+
+    # if argument not specified in function then use the argument I got from getgitdirlist_ap
+    if gitlist is None:
+        gitlist = gitlist2
 
     commitallgit(gitlist, args.commitmessage, addotherbranches = args.addotherbranches, checkcommitnewfiles = checkcommitnewfiles)
 
@@ -271,34 +309,9 @@ def pullorigingit(gitlist):
     os.chdir(pwd)
 
 
-def pullorigingit_dict(gitlist, gitdetailsdict = None):
-    """
-    Select which repositories to pull using my git details function
-    Possibly quicker but doesn't always correctly identify whether needs to be pulled (if for some reason the github and local versions don't line up)
-    I normally just use pullorigingit() instead
-
-    If input gitdetailsdict, needs to be run with option addcheckorigin
-    """
-
-    if gitdetailsdict is None:
-        print('Getting list for whether pull is ahead of current or not')
-        gitdetailsdict, nogitlist = getgitdetails(gitlist, addcheckorigin = True)    
-
-    pulllist = sorted([gitdir for gitdir in gitdetailsdict if gitdetailsdict[gitdir]['allcommitted'] is True and gitdetailsdict[gitdir]['originvlocal'] == 'ahead'])
-
-    if len(pulllist) > 0:
-        print('\nFOLDERS TO PULL:')
-        print('\n'.join(pulllist))
-
-        sys.path.append(str(__projectdir__ / Path('submodules/python-pause/')))
-        from pausecall import confirm
-        confirm()
-
-        for gitdir in pulllist:
-            print('Pulling ' + gitdir + '.')
-            subprocess.call(['git', 'pull', 'origin', 'master'], cwd = gitdetailsdict[gitdir]['location'])
-    else:
-        print('all origins up-to-date')
+def pullorigingit_ap():
+    gitlist = getgitdirlist_ap()
+    pullorigingit(gitlist)
 
 
 def pushorigingit(gitlist):
@@ -328,31 +341,30 @@ def pushorigingit(gitlist):
     os.chdir(pwd)
 
 
-def pushorigingit_dict(gitlist, gitdetailsdict = None):
+def pushorigingit_ap():
+    gitlist = getgitdirlist_ap()
+    pushorigingit(gitlist)
+
+
+# OTHER FUNCTIONS:{{{1
+# Get List of Github Repositories:{{{1
+def getgithubrepositories(username):
     """
-    Select which repositories to push using my git details function
-    Possibly quicker but doesn't always correctly identify whether needs to be pushed (if for some reason the github and local versions don't line up)
-    I normally just use pushorigingit() instead
+    Don't use this function here but allows me to get a list of all repositories on github for a given username.
     """
 
-    if gitdetailsdict is None:
-        gitdetailsdict, notgitlist = getgitdetails(gitlist)    
-        
+    with urllib.request.urlopen("https://api.github.com/users/" + username + "/repos?per_page=1000") as fp:
+        mybytes = fp.read()
 
-    pushlist = sorted([gitdir for gitdir in gitdetailsdict if gitdetailsdict[gitdir]['allcommitted'] is True and gitdetailsdict[gitdir]['localvorigin'] == 'ahead'])
+    text = mybytes.decode("utf8")
 
-    if len(pushlist) > 0:
-        print('\nFOLDERS TO PUSH:')
-        print('\n'.join(pushlist))
+    refullname = re.compile('"full_name":"([a-zA-Z0-9/_-]*)"')
+    matches = refullname.finditer(text)
+    projects = []
+    for match in matches:
+        projects.append( match.group(1)[len(username + '/'): ] )
 
-        sys.path.append(str(__projectdir__ / Path('submodules/python-pause/')))
-        from pausecall import confirm
-        confirm()
-
-        for gitdir in pushlist:
-            subprocess.call(['git', 'push', 'origin', 'master'], cwd = gitdetailsdict[gitdir]['location'])
-    else:
-        print('all masters up-to-date with origin')
+    return(projects)
 
 
 # Empty .git Folders:{{{1

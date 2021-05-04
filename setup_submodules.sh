@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # the submodules we're downloading are (names separated by a space):
-submodulenames="py-getch python-general-func python-pause"
+submodulenames="argparse-fileinputs py-getch python-general-func python-pause"
 
 # STANDARD_SUBMODULE_DOWNLOAD_START:{{{
 
