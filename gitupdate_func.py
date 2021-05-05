@@ -267,7 +267,7 @@ def commitallgit(gitlist, commitmessage, gitdetailsdict = None, addotherbranches
         print('all projects fully committed')
 
 
-def commitallgit_ap(gitlist, checkcommitnewfiles = False):
+def commitallgit_ap(gitlist = None, checkcommitnewfiles = False):
 
     parser_initial=argparse.ArgumentParser()
     parser_initial.add_argument("commitmessage")
