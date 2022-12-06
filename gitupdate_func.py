@@ -66,7 +66,7 @@ def getgitdetails(gitlist, addremotelocation = False, addcheckorigin = False, ad
     import re
     import subprocess
 
-    aheadre = re.compile(r"Your branch is ahead of 'origin/master' by .* commit.?\.")
+    aheadre = re.compile(r"Your branch is ahead of 'origin/[master|main]' by .* commit.?\.")
 
     gitdetailsdict = {}
     notgitlist = []
@@ -102,7 +102,7 @@ def getgitdetails(gitlist, addremotelocation = False, addcheckorigin = False, ad
         # add details on origin from status
         localvorigin = None
         hasorigin = False
-        if outputlist[1] == "Your branch is up-to-date with 'origin/master'.":
+        if outputlist[1] == "Your branch is up-to-date with 'origin/[master|main]'.":
             hasorigin = True
             localvorigin = 'uptodate'
         aheadmatch = aheadre.match(outputlist[1])
@@ -155,9 +155,9 @@ def printgitdetails(gitlist):
     behindgithub = []
     aheadgithub = []
     for gitdir in sorted(gitdirsdict):
-        if gitdirsdict[gitdir]['allcommitted'] == False and gitdirsdict[gitdir]['branch'] == 'master':
+        if gitdirsdict[gitdir]['allcommitted'] == False and gitdirsdict[gitdir]['branch'] in ['main', 'master']:
             notallcommitted.append(gitdir)
-        if gitdirsdict[gitdir]['branch'] != 'master':
+        if gitdirsdict[gitdir]['branch'] not in ['main', 'master']:
             notonmaster.append(gitdir)
 
         if gitdirsdict[gitdir]['localvorigin'] == 'ahead':
@@ -177,10 +177,10 @@ def printgitdetails(gitlist):
         print('\nProjects that are behind github (so may need to do git pull):\n' + '\n'.join(behindgithub))
 
     if len(notonmaster) > 0:
-        print('\nProjects not on the master branch:\n' + '\n'.join(notonmaster))
+        print('\nProjects not on the main/master branch:\n' + '\n'.join(notonmaster))
 
     if len(notallcommitted) > 0:
-        print('\nProjects with uncommitted files on the master branch:\n' + '\n'.join(notallcommitted))
+        print('\nProjects with uncommitted files on the main/master branch:\n' + '\n'.join(notallcommitted))
 
 
 def printgitdetails_ap():
@@ -210,8 +210,8 @@ def commitallgit(gitlist, commitmessage, gitdetailsdict = None, addotherbranches
 
     notcommitted = [gitdir for gitdir in gitdetailsdict if gitdetailsdict[gitdir]['allcommitted'] == False]
 
-    gitdirsmaster = sorted([gitdir for gitdir in notcommitted if gitdetailsdict[gitdir]['branch'] == 'master'])
-    gitdirstest = sorted([gitdir for gitdir in notcommitted if gitdetailsdict[gitdir]['branch'] != 'master'])
+    gitdirsmaster = sorted([gitdir for gitdir in notcommitted if gitdetailsdict[gitdir]['branch'] in ['main', 'master']])
+    gitdirstest = sorted([gitdir for gitdir in notcommitted if gitdetailsdict[gitdir]['branch'] not in ['main', 'master']])
 
     if addotherbranches is True:
         includedbranch = 'ALL BRANCHES'
