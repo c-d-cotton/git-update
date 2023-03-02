@@ -41,8 +41,13 @@ def getgitdirlist_ap(parser_initial = None):
     for rootdir in rootdirs:
         rootdir = rootdir.replace('~', os.path.expanduser('~'))
         dirs = os.listdir(rootdir)
-        for folder in dirs:
-            singledirs.append(os.path.join(rootdir, folder))
+        for filename in dirs:
+            folder = os.path.join(rootdir, filename)
+            # only include folders
+            if os.path.isdir(folder):
+                singledirs.append(folder)
+            else:
+                continue
 
     singledirs = sorted(singledirs)
 
